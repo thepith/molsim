@@ -2,6 +2,83 @@
 set -o nounset                              # Treat unset variables as an error
 set -e
 
+# Filename
+archFile="Src/make.arch"
+fftwFile="Src/make.fftwpath"
+conffile="version.conf"
+
+print_usage() {
+   printf "MOLSIM configure script
+
+  Options:
+   -h   show this help
+   -n   non-interactive mode, it will use the default options
+   -s   show the current configuration
+   -d   delete the current configuration
+
+The compiler which is to be used is written into $archFile.
+
+The path of the fftw header files and the fftw libary are written into $fftwFile.
+
+The name of the version will make the installed version of Molsim be called
+\"mosim_ser.<version name>\". The version name is written to $conffile."
+   exit 0
+}
+
+print_current() {
+   if [[ -e "$archFile" ]]; then
+      source <(sed 's/ //g' $archFile)
+   else
+      ARCH=""
+      MPIFC=""
+   fi
+   if [[ -e "$fftwFile" ]]; then
+      source <(sed 's/ //g' $fftwFile)
+   else
+      FFTW_PATH=""
+      FFTWLIB=""
+   fi
+   if [[ -e "$conffile" ]]; then
+      version="version name is: \"$(cat $conffile)\""
+   else
+      version="version name is not set"
+   fi
+
+   printf "MOLSIM configure script
+
+Current configuration:
+
+compiler:       $ARCH
+mpi-compiler:   $MPIFC
+fftw header at: $FFTW_PATH
+fftw libary at: $FFTWLIB
+
+$version"
+   exit 0
+}
+
+delete_config() {
+   printf "MOLSIM configure script
+
+the current configuration will be deleted."
+   rm $archFile
+   rm $fftwFile
+   rm $conffile
+   exit 0
+}
+
+nonInteractive=false
+
+while getopts ':hnsd' opt; do
+  case "${opt}" in
+    n) nonInteractive=true ;;
+    h) print_usage ;;
+    s) print_current ;;
+    d) delete_config ;;
+    \?) echo "Invalid option: -${OPTARG}" >&2 ; exit 1 ;;
+  esac
+done
+
 echo -n "Checking ifort ..."
 if command -v ifort >/dev/null 2>&1; then
    echo "yes"
@@ -72,27 +149,32 @@ else
    fi
 fi
 
-setcomp=false
-while [ $setcomp = false ]; do
-   read -e -p "Use $FC as a compiler and $MPIFC as mpi compiler? " -i "y" docomp
-   case ${docomp:0:1} in
-      y|Y )
-         setcomp=true
-         ;;
-      * )
-         read -e -p "Which compiler to use? " -i "$FC" FC
-         read -e -p "Which mpi compiler to use? " -i "$MPIFC" MPIFC
-   esac
-done
+if [ $nonInteractive = true ]; then
+   setcomp=true
+else
+   setcomp=false
+   while [ $setcomp = false ]; do
+      read -e -p "Use $FC as a compiler and $MPIFC as mpi compiler? " -i "y" docomp
+      case ${docomp:0:1} in
+         y|Y )
+            setcomp=true
+            ;;
+         * )
+            read -e -p "Which compiler to use? " -i "$FC" FC
+            read -e -p "Which mpi compiler to use? " -i "$MPIFC" MPIFC
+      esac
+   done
+fi
+
 if [ "$FC" = "gfortran" ]; then
-   echo "ARCH = LOCAL_GFORTRAN" > Src/make.arch
+   echo "ARCH = LOCAL_GFORTRAN" > $archFile
 elif [ "$FC" = "ifort" ]; then
-   echo "ARCH = LOCAL_INTEL" > Src/make.arch
+   echo "ARCH = LOCAL_INTEL" > $archFile
 else
    echo "Compiler $FC is not supported by molsim"
    exit 1
 fi
-echo "MPIFC = $MPIFC" >> Src/make.arch
+echo "MPIFC = $MPIFC" >> $archFile
 
 fftwpath="other"
 fftwlib="other"
@@ -101,24 +183,34 @@ if locate -l 1 -r "fftw3\.f03$" > /dev/null && locate -l 1 -r "libfftw3\(\.dll\)
    fftwpaths=`dirname $(locate -r "fftw3\.f03$") | uniq`
    echo ""
    echo "Which FFTW3 version should be used?"
-   select d in $(echo $fftwpaths "other"); do
-      if [ -n "$d" ]; then
-         echo "$d selected"
-         fftwpath=$d
-         break
-      fi
-   done
+   if [ $nonInteractive = true ]; then
+      fftwpatharray=($fftwpaths)
+      fftwpath=${fftwpatharray[0]}
+   else
+      select d in $(echo $fftwpaths "other"); do
+         if [ -n "$d" ]; then
+            fftwpath=$d
+            break
+         fi
+      done
+   fi
+   echo "$fftwpath selected"
 
    fftwlibs=`dirname $(locate -r "libfftw3\(\.dll\)*\(\.a\|\.so\)$") | uniq`
    echo ""
    echo "Which FFTW3 lib should be used?"
-   select d in $(echo $fftwlibs "other"); do
-      if [ -n "$d" ]; then
-         echo "$d selected"
-         fftwlib=$d
-         break
-      fi
-   done
+   if [ $nonInteractive = true ]; then
+      fftwlibarray=($fftwlibs)
+      fftwlib=${fftwlibarray[0]}
+   else
+      select d in $(echo $fftwlibs "other"); do
+         if [ -n "$d" ]; then
+            fftwlib=$d
+            break
+         fi
+      done
+   fi
+   echo "$fftwlib selected"
 fi
 
 if [ "$fftwlib" = "other" ] || [ "$fftwpath" = "other" ]; then
@@ -185,8 +277,8 @@ if [ "$fftwlib" = "other" ] || [ "$fftwpath" = "other" ]; then
          read -e -i "/" fftwlib
    esac
 fi
-echo "FFTW_PATH = $fftwpath" > Src/make.fftwpath
-echo "FFTWLIB = $fftwlib" >> Src/make.fftwpath
+echo "FFTW_PATH = $fftwpath" > $fftwFile
+echo "FFTWLIB = $fftwlib" >> $fftwFile
 echo "yes"
 
 echo -n "Checking ~/bin ..."
@@ -205,18 +297,26 @@ echo "yes"
 
 
 #creating version.conf where user parameters are stored
-conffile="version.conf"
 
 if [[ -e "$conffile" ]]; then
-   read -e -p "$conffile exists. Overwrite? " -i "n" doconf
+   if [ $nonInteractive = true ]; then
+      doconf="n"
+   else
+      read -e -p "$conffile exists. Overwrite? " -i "n" doconf
+   fi
 else
    doconf="y"
 fi
 
 case ${doconf:0:1} in
    y|Y )
-      read -e -p "Name of the version? " -i "" ver
-      echo $ver > $conffile
+      if [ $nonInteractive = true ]; then
+         echo "version without a name"
+         touch $conffile
+      else
+         read -e -p "Name of the version? " -i "" ver
+         echo $ver > $conffile
+      fi
       ;;
    * )
       echo "not changing $conffile"
