@@ -218,7 +218,7 @@ if [ -f "$HOME/.fftw/lib/libfftw3.a" ]; then
    echo "found FFTW3 header in $HOME/.fftw"
    fftwlibs+=" $HOME/.fftw/lib"
 fi
-fftwlibs=$(echo $fftwpaths | sed 's/^ //' | tr ' ' '\n' | uniq)
+fftwlibs=$(echo $fftwlibs | sed 's/^ //' | tr ' ' '\n' | uniq)
 
 if [ ! -z "$fftwpaths" ] && [ ! -z "$fftwlibs" ] ; then
    echo ""
