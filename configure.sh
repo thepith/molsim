@@ -219,7 +219,6 @@ if [ -f "$HOME/.fftw/lib/libfftw3.a" ]; then
    fftwlibs+=" $HOME/.fftw/lib"
 fi
 fftwlibs=$(echo $fftwpaths | sed 's/^ //' | tr ' ' '\n' | uniq)
-exit 0
 
 if [ ! -z "$fftwpaths" ] && [ ! -z "$fftwlibs" ] ; then
    echo ""
