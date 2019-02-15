@@ -186,7 +186,6 @@ if [ -x "$(command -v cpp)" ]; then
    if echo '#include <fftw3.f03>' | cpp -H -o /dev/null 2> /dev/null ; then
       paths=`echo -e '#include <fftw3.f03>' | cpp -H -o /dev/null 2>&1 | grep "\.\.* " | sed 's/^\.\.* //g'`
       fftwpaths+=" $(dirname $paths)"
-      echo "|$fftwpaths|"
    fi
 fi
 if [ -x "$(command -v locate)" ]; then
