@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -o nounset                              # Treat unset variables as an error
-set -e
+set -euo pipefail
 
 # Filename
 archFile="Src/make.arch"
@@ -217,6 +217,9 @@ if [ "$fftwlib" = "other" ] || [ "$fftwpath" = "other" ]; then
    echo ""
    echo "Automatic detection of FFTW3 failed."
    echo "You can either install it locally, or provide the path to the FFTW3 libary."
+   if [ $nonInteractive = true ]; then
+      exit 1
+   fi
    read -e -p "Install under ~/.fftw? (y/n) " -i "n" dofftw
    case ${dofftw:0:1} in
       y|Y )
