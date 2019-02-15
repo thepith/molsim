@@ -236,7 +236,6 @@ if [ ! -z "$fftwpaths" ] && [ ! -z "$fftwlibs" ] ; then
    fi
    echo "$fftwpath selected"
 
-   fftwlibs=`dirname $(locate -r "libfftw3\(\.dll\)*\(\.a\|\.so\)$") | uniq`
    echo ""
    echo "Which FFTW3 lib should be used?"
    if [ $nonInteractive = true ]; then
