@@ -178,9 +178,50 @@ echo "MPIFC = $MPIFC" >> $archFile
 
 fftwpath="other"
 fftwlib="other"
-echo -n "checking for FFTW3 using locate .."
-if locate -l 1 -r "fftw3\.f03$" > /dev/null && locate -l 1 -r "libfftw3\(\.dll\)*\(\.a\|\.so\)$" > /dev/null ; then
-   fftwpaths=`dirname $(locate -r "fftw3\.f03$") | uniq`
+fftwpaths=""
+fftwlibs=""
+echo "Search FFTW files"
+if [ -x "$(command -v cpp)" ]; then
+   echo "checking for FFTW3 header using gcc"
+   if echo '#include <fftw3.f03>' | cpp -H -o /dev/null 2> /dev/null ; then
+      paths=`echo -e '#include <fftw3.f03>' | cpp -H -o /dev/null 2>&1 | grep "\.\.* " | sed 's/^\.\.* //g'`
+      fftwpaths+=" $(dirname $paths)"
+      echo "|$fftwpaths|"
+   fi
+fi
+if [ -x "$(command -v locate)" ]; then
+   echo "checking for FFTW3 header using locate"
+   if locate -l 1 -r "fftw3\.f03$" > /dev/null ; then
+      fftwpaths+=" $(dirname $(locate -r "fftw3\.f03$") | uniq)"
+   fi
+fi
+if [ -f "$HOME/.fftw/include/fftw3.f03" ]; then
+   echo "found FFTW3 header in $HOME/.fftw"
+   fftwpaths+=" $HOME/.fftw/include"
+fi
+fftwpaths=$(echo $fftwpaths | sed 's/^ //' | tr ' ' '\n' | uniq)
+
+if [ -x /sbin/ldconfig ]; then
+   echo "checking for FFTW3 libary using ldconfig"
+   if /sbin/ldconfig -p | grep "libfftw3\(\.dll\)*\(\.a\|\.so\)$" > /dev/null; then
+      paths=$(/sbin/ldconfig -p | grep "libfftw3\(\.dll\)*\(\.a\|\.so\)$" | sed 's/^.* => //')
+      fftwlibs+=" $(dirname $paths)"
+   fi
+fi
+if [ -x "$(command -v locate)" ]; then
+   echo "checking for FFTW3 libary using locate"
+   if locate -l 1 -r "libfftw3\(\.dll\)*\(\.a\|\.so\)$" > /dev/null ; then
+      fftwlibs+=" $(dirname $(locate -r "libfftw3\(\.dll\)*\(\.a\|\.so\)$") | uniq)"
+   fi
+fi
+if [ -f "$HOME/.fftw/lib/libfftw3.a" ]; then
+   echo "found FFTW3 header in $HOME/.fftw"
+   fftwlibs+=" $HOME/.fftw/lib"
+fi
+fftwlibs=$(echo $fftwpaths | sed 's/^ //' | tr ' ' '\n' | uniq)
+exit 0
+
+if [ ! -z "$fftwpaths" ] && [ ! -z "$fftwlibs" ] ; then
    echo ""
    echo "Which FFTW3 version should be used?"
    if [ $nonInteractive = true ]; then
