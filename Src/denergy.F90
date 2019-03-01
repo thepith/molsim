@@ -169,6 +169,19 @@ if (itest == 90) then
       write(uout,'(a,10f10.5)') 'du%twob(0:nptpt)', du%twob(0:nptpt)!cc
 end if
 
+   else if (lmvt) then  ! atoms possesing weak charges (titrating system)
+
+      if (lmonoatom) then
+         if(.not. lvlist) call Stop(txroutine, 'mvt is not supported for non-verlet list', uout)
+         call DUTwoBody(lhsoverlap, UTwoBodymVTANew, UWeakChargeAOld)
+      else
+         if (.not.lmonoatom) call Stop(txroutine, 'mvt is not supported for non-monoatom', uout)
+      end if
+
+      if (lhsoverlap) goto 400
+
+      if (lewald) call DUWeakChargeEwald
+
    else if (ldipole) then                     ! atoms possessing charges and dipoles
 
       call DUTwoBody(lhsoverlap, UTwoBodyPNew, UTwoBodyPOld)
@@ -4563,3 +4576,247 @@ end if
       if (itest == 90) write(uout,'(a,10f10.5)') '   utwobold(0:nptpt)', utwobold(0:nptpt)  !cc
 
 end subroutine UWeakChargePOld
+
+!************************************************************************
+!> \page denergy denergy.F90
+!! **UWeakChargeANew**
+!! *calculate two-body potential energy for new configuration*
+!************************************************************************
+
+!     only monoatomic particles
+!     weak charges, limited to charged hard spheres
+
+subroutine UTwoBodymVTANew(lhsoverlap,jp)
+
+   use EnergyModule
+   implicit none
+
+   logical,    intent(out) :: lhsoverlap
+   integer(4), intent(out) :: jp
+
+   character(40), parameter :: txroutine ='UTwoBodymVTANew'
+
+   integer(4) :: ip, iploc, ipt, jploc, jpt, iptjpt, ibuf
+   real(8)    :: dx, dy, dz, r2, d, usum
+   logical    :: EllipsoidOverlap, SuperballOverlap
+
+   if (.not.lmonoatom) call Stop(txroutine, '.not.lmonoatom', uout)
+
+if (itest == 90) then
+   call writehead(3,txroutine, uout)
+   write(uout,*) 'nptm, ipnptm(1:nptm)', nptm, ipnptm(1:nptm)
+end if
+
+   utwobnew(0:nptpt) = Zero
+   lhsoverlap =.true.
+
+   do iploc = 1, nptm
+      ip = ipnptm(iploc)
+      ipt = iptpn_tmp(ip)
+      do jploc = 1, np_tmp
+         jp = jpnlist(jploc,ip)
+         if (lptm(jp)) cycle
+         jpt = iptpn(jp)
+         iptjpt = iptpt(ipt,jpt)
+         dx = rotm(1,iploc)-ro(1,jp)
+         dy = rotm(2,iploc)-ro(2,jp)
+         dz = rotm(3,iploc)-ro(3,jp)
+         call PBCr2(dx,dy,dz,r2)
+         if (lellipsoid) Then
+            if (EllipsoidOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),ori(1,1,jp),radellipsoid2,aellipsoid)) goto 400
+         end if
+         if (lsuperball) Then
+            if (SuperballOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),ori(1,1,jp))) goto 400
+         end if
+         if (r2 > rcut2) cycle
+         if (r2 < r2atat(iptjpt)) goto 400
+
+         if (r2 < r2umin(iptjpt)) goto 400       ! outside lower end
+
+         ibuf = iubuflow(iptjpt)
+         do
+            if (r2 >= ubuf(ibuf)) exit
+            ibuf = ibuf+12
+         end do
+         d = r2-ubuf(ibuf)
+         usum = ubuf(ibuf+1)+d*(ubuf(ibuf+2)+d*(ubuf(ibuf+3)+ &
+                           d*(ubuf(ibuf+4)+d*(ubuf(ibuf+5)+d*ubuf(ibuf+6)))))
+
+         if (itest == 90) write(uout,'(a,2i5,2l5,f10.5)') ' ip, jp, laztm, laz, usum', ip,jp,laztm(iploc),laz(jp), usum  !cc
+
+         utwobnew(iptjpt) = utwobnew(iptjpt) + usum
+      end do
+   end do
+
+! ... contribution from pairs where both particles are displaced
+
+   if (lptmdutwob) then
+      do iploc = myid+1, nptm, nproc ! adapted for _PAR_
+         ip = ipnptm(iploc)
+         ipt = iptpn(ip)
+         do jploc = iploc+1, nptm
+            jp = ipnptm(jploc)
+            jpt = iptpn(jp)
+            iptjpt = iptpt(ipt,jpt)
+            dx = rotm(1,iploc)-rotm(1,jploc)
+            dy = rotm(2,iploc)-rotm(2,jploc)
+            dz = rotm(3,iploc)-rotm(3,jploc)
+            call PBCr2(dx,dy,dz,r2)
+            if (lellipsoid) Then
+                if (EllipsoidOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),oritm(1,1,jploc),radellipsoid2,aellipsoid)) goto 400
+            end if
+            if (lsuperball) Then
+               if (SuperballOverlap(r2,[dx,dy,dz],oritm(1,1,iploc),oritm(1,1,jploc))) goto 400
+            end if
+            if (r2 > rcut2) cycle
+            if (r2 < r2atat(iptjpt)) goto 400
+
+
+            if (r2 < r2umin(iptjpt)) goto 400       ! outside lower end
+
+            if (.not.laztm(iploc)) cycle  ! iploc uncharged
+            if (.not.laztm(jploc)) cycle  ! jploc uncharged
+            ibuf = iubuflow(iptjpt)
+            do
+               if (r2 >= ubuf(ibuf)) exit
+               ibuf = ibuf+12
+            end do
+            d = r2-ubuf(ibuf)
+            usum = ubuf(ibuf+1)+d*(ubuf(ibuf+2)+d*(ubuf(ibuf+3)+ &
+                              d*(ubuf(ibuf+4)+d*(ubuf(ibuf+5)+d*ubuf(ibuf+6)))))
+
+          if (itest == 90) write(uout,'(a,2i5,2l5,f10.5)') ' ip ,jp, laztm, laztm, usum', ip,jp,laztm(iploc),laztm(jploc), usum  !cc
+
+            utwobnew(iptjpt) = utwobnew(iptjpt) + usum
+         end do
+      end do
+   end if
+
+   utwobnew(0) = sum(utwobnew(1:nptpt))
+   du%twob(0:nptpt) = du%twob(0:nptpt) + utwobnew(0:nptpt)
+   lhsoverlap =.false.
+
+  400 continue
+
+      if (itest == 90) write(*,'(a,10f10.5)') '   utwobnew(0:nptpt)', utwobnew(0:nptpt) !cc
+
+end subroutine UWeakChargeANew
+
+!************************************************************************
+!> \page denergy denergy.F90
+!! **UWeakChargeAOld**
+!! *calculate two-body potential energy for old configuration*
+!************************************************************************
+
+!     only monoatomic particles
+!     weak charges, limited to charged hard spheres
+
+subroutine UWeakChargeAOld
+
+   use EnergyModule
+   implicit none
+
+   character(40), parameter :: txroutine ='UWeakChargeAOld'
+   integer(4) :: ip, iploc, ipt, jp, jploc, jpt, iptjpt, ibuf
+   real(8)    :: dx, dy, dz, r2, d, usum
+   logical    :: EllipsoidOverlap, SuperballOverlap
+
+   if (.not.lmonoatom) call Stop(txroutine, '.not.lmonoatom', uout)
+
+if (itest == 90) then
+   call writehead(3,txroutine, uout)                           !cc
+   write(uout,*) 'nptm, ipnptm(1:nptm)', nptm, ipnptm(1:nptm)  !cc
+end if
+
+   utwobold(0:nptpt) = Zero
+
+   do iploc = 1, nptm
+      ip = ipnptm(iploc)
+      ipt = iptpn(ip)
+      do jploc = 1, nneighpn(ip)
+         jp = jpnlist(jploc,ip)
+         if (lptm(jp)) cycle
+         jpt = iptpn(jp)
+         iptjpt = iptpt(ipt,jpt)
+         dx = ro(1,ip)-ro(1,jp)
+         dy = ro(2,ip)-ro(2,jp)
+         dz = ro(3,ip)-ro(3,jp)
+         call PBCr2(dx,dy,dz,r2)
+         if (r2 > rcut2) cycle
+         if (lellipsoid) Then
+            if (EllipsoidOverlap(r2,[dx,dy,dz],ori(1,1,ip),ori(1,1,jp),radellipsoid2,aellipsoid)) goto 400
+         end if
+         if (lsuperball) Then
+            if (SuperballOverlap(r2,[dx,dy,dz],ori(1,1,ip),ori(1,1,jp))) goto 400
+         end if
+
+         if (r2 < r2umin(iptjpt)) goto 400       ! outside lower end
+
+         if (.not.laz(ip)) cycle  ! ip uncharged
+         if (.not.laz(jp)) cycle  ! jp uncharged
+         ibuf = iubuflow(iptjpt)
+         do
+            if (r2 >= ubuf(ibuf)) exit
+            ibuf = ibuf+12
+         end do
+         d = r2-ubuf(ibuf)
+         usum = ubuf(ibuf+1)+d*(ubuf(ibuf+2)+d*(ubuf(ibuf+3)+ &
+                           d*(ubuf(ibuf+4)+d*(ubuf(ibuf+5)+d*ubuf(ibuf+6)))))
+
+         if (itest == 90) write(uout,'(a,2i5,2l5,f10.5)') ' ip, jp, laz, laz, usum', ip,jp,laz(ip),laz(jp), usum  !cc
+
+         utwobold(iptjpt) = utwobold(iptjpt) + usum
+      end do
+   end do
+
+! ... contribution from pairs where both particles are displaced
+
+   if (lptmdutwob) then
+      do iploc = myid+1, nptm, nproc ! adapted for _PAR_
+         ip = ipnptm(iploc)
+         ipt = iptpn(ip)
+         do jploc = iploc+1, nptm
+            jp = ipnptm(jploc)
+            jpt = iptpn(jp)
+            iptjpt = iptpt(ipt,jpt)
+            dx = ro(1,ip)-ro(1,jp)
+            dy = ro(2,ip)-ro(2,jp)
+            dz = ro(3,ip)-ro(3,jp)
+            call PBCr2(dx,dy,dz,r2)
+            if (r2 > rcut2) cycle
+            if (lellipsoid) Then
+               if (EllipsoidOverlap(r2,[dx,dy,dz],ori(1,1,ip),ori(1,1,jp),radellipsoid2,aellipsoid)) goto 400
+            end if
+            if (lsuperball) Then
+              if (SuperballOverlap(r2,[dx,dy,dz],ori(1,1,ip),ori(1,1,jp))) goto 400
+            end if
+            if (r2 < r2atat(iptjpt)) goto 400
+            if (r2 < r2umin(iptjpt)) goto 400       ! outside lower end
+
+            ibuf = iubuflow(iptjpt)
+            if (.not.laz(ip)) cycle  ! ip uncharged
+            if (.not.laz(jp)) cycle  ! jp uncharged
+            do
+               if (r2 >= ubuf(ibuf)) exit
+               ibuf = ibuf+12
+            end do
+            d = r2-ubuf(ibuf)
+            usum = ubuf(ibuf+1)+d*(ubuf(ibuf+2)+d*(ubuf(ibuf+3)+ &
+                              d*(ubuf(ibuf+4)+d*(ubuf(ibuf+5)+d*ubuf(ibuf+6)))))
+
+          if (itest == 90)  write(uout,'(a,2i5,2l5,f10.5)') ' both moved: ip, jp, usum', ip,jp,laz(ip),laz(jp), usum  !cc
+
+            utwobold(iptjpt) = utwobold(iptjpt) + usum
+         end do
+      end do
+   end if
+
+   utwobold(0) = sum(utwobold(1:nptpt))
+   du%twob(0:nptpt) = du%twob(0:nptpt) - utwobold(0:nptpt)
+
+  400 continue
+
+     if (itest == 90)  write(*,'(a,10f10.5)') '   utwobold(0:nptpt)', utwobold(0:nptpt) !cc
+
+end subroutine UWeakChargeAOld
+
